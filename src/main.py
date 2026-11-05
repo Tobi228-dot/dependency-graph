@@ -1,12 +1,17 @@
-"""Минимальный CLI визуализатора зависимостей npm: этап 1."""
+"""CLI получения прямых зависимостей npm: этап 2."""
 
 import argparse
 import configparser
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 import re
 import sys
 from urllib.parse import urlsplit
+
+if __package__:
+    from .registry import RegistryError, get_dependencies
+else:
+    from registry import RegistryError, get_dependencies
 
 
 PACKAGE = re.compile(r"(?:@[a-z0-9._-]+/)?[a-z0-9][a-z0-9._-]*")
@@ -80,28 +85,43 @@ def local_path(value, base):
     return path if path.is_absolute() else base / path
 
 
-def validate_repository(repository, test_mode, base):
-    """Проверить читаемый тестовый файл либо HTTP(S)-адрес."""
-    if test_mode:
-        path = local_path(repository, base)
-        try:
-            with path.open("rb"):
-                pass
-        except OSError as error:
-            message = f"repository: файл недоступен: {error}"
-            raise ConfigError(message) from error
-        return
+def validate_test_file(repository, base):
+    """Проверить доступность файла тестового репозитория."""
+    path = local_path(repository, base)
+    try:
+        with path.open("rb"):
+            pass
+    except OSError as error:
+        message = f"repository: файл недоступен: {error}"
+        raise ConfigError(message) from error
+
+
+def validate_repository_url(repository):
+    """Проверить синтаксис адреса HTTP(S)-репозитория."""
     try:
         url = urlsplit(repository)
-        valid = url.scheme in {"http", "https"} and bool(url.hostname)
-        valid = valid and not any(char.isspace() for char in repository)
-        valid = valid and url.username is None and url.password is None
-        valid = valid and (url.port is None or url.port > 0)
-        valid = valid and not url.fragment and not url.query
+        checks = (
+            url.scheme in {"http", "https"},
+            bool(url.hostname),
+            not any(char.isspace() for char in repository),
+            url.username is None,
+            url.password is None,
+            url.port is None or url.port > 0,
+            not url.fragment,
+            not url.query,
+        )
     except ValueError as error:
         raise ConfigError("repository: некорректный URL") from error
-    if not valid:
+    if not all(checks):
         raise ConfigError("repository: нужен HTTP(S) URL без учётных данных")
+
+
+def validate_repository(repository, test_mode, base):
+    """Выбрать проверку тестового файла или адреса репозитория."""
+    if test_mode:
+        validate_test_file(repository, base)
+    else:
+        validate_repository_url(repository)
 
 
 def validate_output(output, base):
@@ -135,19 +155,25 @@ def load_settings(path):
 
 
 def main(argv=None):
-    """Вывести настройки; вернуть 2 при ошибке конфигурации."""
+    """Вывести прямые зависимости; вернуть 2 при пользовательской ошибке."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True,
                         help="путь к UTF-8 INI-файлу")
     arguments = parser.parse_args(argv)
     try:
         settings = load_settings(arguments.config)
+        dependencies = get_dependencies(settings, arguments.config.parent)
     except ConfigError as error:
         print(f"Ошибка конфигурации: {error}", file=sys.stderr)
         return 2
-    for key, value in asdict(settings).items():
-        formatted = str(value).lower() if isinstance(value, bool) else value
-        print(f"{key}={formatted}")
+    except RegistryError as error:
+        print(f"Ошибка репозитория: {error}", file=sys.stderr)
+        return 2
+    print(f"Прямые зависимости {settings.package}@{settings.version}:")
+    if not dependencies:
+        print("Прямых зависимостей нет")
+    for name, constraint in dependencies.items():
+        print(f"{name}={constraint}")
     return 0
 
 

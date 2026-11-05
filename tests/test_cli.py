@@ -5,6 +5,7 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from src.main import ConfigError, load_settings, main
 
@@ -12,7 +13,12 @@ from src.main import ConfigError, load_settings, main
 class ConfigTests(unittest.TestCase):
     """Проверять корректные настройки и ошибки каждого параметра."""
 
-    def setUp(self):
+    def run(self, result=None):
+        """Подготовить окружение перед стандартным запуском unittest."""
+        self.prepare_config()
+        return super().run(result)
+
+    def prepare_config(self):
         """Создать изолированную конфигурацию."""
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -115,14 +121,15 @@ class ConfigTests(unittest.TestCase):
             load_settings(self.path)
 
     def test_cli_output(self):
-        """CLI выводит все пять пар ключ-значение."""
+        """CLI выводит зависимости, полученные слоем репозитория."""
         self.write_config()
         output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            code = main(["--config", str(self.path)])
+        with patch("src.main.get_dependencies", return_value={"accepts": "~1"}):
+            with contextlib.redirect_stdout(output):
+                code = main(["--config", str(self.path)])
         self.assertEqual(code, 0)
-        expected = {f"{key}={value}" for key, value in self.values.items()}
-        self.assertEqual(set(output.getvalue().splitlines()), expected)
+        self.assertIn("express@4.18.2", output.getvalue())
+        self.assertIn("accepts=~1", output.getvalue())
 
     def test_cli_error(self):
         """Ошибка даёт код 2, понятное сообщение и не даёт traceback."""
