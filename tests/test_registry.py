@@ -115,7 +115,7 @@ class RegistryTests(unittest.TestCase):
         import contextlib
 
         errors = io.StringIO()
-        with patch("src.main.get_dependencies",
+        with patch("src.main.build_graph",
                    side_effect=RegistryError("HTTP 404")):
             with contextlib.redirect_stderr(errors):
                 code = main(["--config", "examples/config.ini"])

@@ -124,12 +124,13 @@ class ConfigTests(unittest.TestCase):
         """CLI выводит зависимости, полученные слоем репозитория."""
         self.write_config()
         output = io.StringIO()
-        with patch("src.main.get_dependencies", return_value={"accepts": "~1"}):
+        graph = {"express@4.18.2": ("accepts@1.3.8",)}
+        with patch("src.main.build_graph", return_value=graph):
             with contextlib.redirect_stdout(output):
                 code = main(["--config", str(self.path)])
         self.assertEqual(code, 0)
         self.assertIn("express@4.18.2", output.getvalue())
-        self.assertIn("accepts=~1", output.getvalue())
+        self.assertIn("express@4.18.2 -> accepts@1.3.8", output.getvalue())
 
     def test_cli_error(self):
         """Ошибка даёт код 2, понятное сообщение и не даёт traceback."""

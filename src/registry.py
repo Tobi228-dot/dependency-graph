@@ -27,11 +27,8 @@ def read_json(stream):
     return data
 
 
-def fetch_metadata(settings):
-    """Запросить метаданные точной версии npm-пакета по HTTP(S)."""
-    package = quote(settings.package, safe="")
-    version = quote(settings.version, safe="")
-    url = f"{settings.repository.rstrip('/')}/{package}/{version}"
+def fetch_json(url):
+    """Получить JSON по HTTP(S), обработав сетевые ошибки."""
     request = Request(url, headers={"Accept": "application/json"})
     try:
         with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
@@ -45,6 +42,25 @@ def fetch_metadata(settings):
     except (URLError, OSError) as error:
         raise RegistryError(f"Не удалось получить метаданные: {error}") \
             from error
+
+
+def fetch_metadata(settings):
+    """Запросить метаданные точной версии npm-пакета по HTTP(S)."""
+    package = quote(settings.package, safe="")
+    version = quote(settings.version, safe="")
+    url = f"{settings.repository.rstrip('/')}/{package}/{version}"
+    return fetch_json(url)
+
+
+def fetch_catalogue(settings, package):
+    """Получить опубликованные версии пакета для разрешения диапазонов."""
+    url = f"{settings.repository.rstrip('/')}/{quote(package, safe='')}"
+    data = fetch_json(url)
+    if not isinstance(data.get("versions"), dict):
+        raise RegistryError(f"Нет списка версий пакета {package}")
+    if not isinstance(data.get("dist-tags", {}), dict):
+        raise RegistryError(f"Некорректные dist-tags пакета {package}")
+    return data
 
 
 def extract_dependencies(metadata, settings):
@@ -62,8 +78,8 @@ def extract_dependencies(metadata, settings):
     return dict(sorted(dependencies.items()))
 
 
-def read_test_dependencies(settings, base):
-    """Прочитать прямые связи из тестового графа вида A: [B, C]."""
+def read_test_graph(settings, base):
+    """Прочитать файл тестового графа вида A: [B, C]."""
     path = Path(settings.repository)
     if not path.is_absolute():
         path = base / path
@@ -73,15 +89,27 @@ def read_test_dependencies(settings, base):
     except OSError as error:
         raise RegistryError(f"Не удалось прочитать тестовый файл: {error}") \
             from error
-    if settings.package not in graph:
+    return graph
+
+
+def test_children(graph, package):
+    """Проверить имя и получить прямые связи тестового узла."""
+    if not re.fullmatch(r"[A-Z]+", package):
+        raise RegistryError("Тестовые имена: заглавные латинские буквы")
+    if package not in graph:
         raise RegistryError("Пакет не найден в тестовом репозитории")
-    dependencies = graph[settings.package]
+    dependencies = graph[package]
     if not isinstance(dependencies, list):
         raise RegistryError("Зависимости тестового пакета должны быть списком")
     for name in dependencies:
         if not isinstance(name, str) or not re.fullmatch(r"[A-Z]+", name):
             raise RegistryError("Тестовые имена: заглавные латинские буквы")
     return dict.fromkeys(sorted(dependencies), "*")
+
+
+def read_test_dependencies(settings, base):
+    """Прочитать прямые связи заданного тестового пакета."""
+    return test_children(read_test_graph(settings, base), settings.package)
 
 
 def get_dependencies(settings, base):

@@ -1,4 +1,4 @@
-"""CLI получения прямых зависимостей npm: этап 2."""
+"""CLI построения графа зависимостей npm."""
 
 import argparse
 import configparser
@@ -9,9 +9,11 @@ import sys
 from urllib.parse import urlsplit
 
 if __package__:
-    from .registry import RegistryError, get_dependencies
+    from .graph import build_graph, print_graph
+    from .registry import RegistryError
 else:
-    from registry import RegistryError, get_dependencies
+    from graph import build_graph, print_graph
+    from registry import RegistryError
 
 
 PACKAGE = re.compile(r"(?:@[a-z0-9._-]+/)?[a-z0-9][a-z0-9._-]*")
@@ -155,25 +157,21 @@ def load_settings(path):
 
 
 def main(argv=None):
-    """Вывести прямые зависимости; вернуть 2 при пользовательской ошибке."""
+    """Вывести граф зависимостей; вернуть 2 при пользовательской ошибке."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True,
                         help="путь к UTF-8 INI-файлу")
     arguments = parser.parse_args(argv)
     try:
         settings = load_settings(arguments.config)
-        dependencies = get_dependencies(settings, arguments.config.parent)
+        graph = build_graph(settings, arguments.config.parent)
     except ConfigError as error:
         print(f"Ошибка конфигурации: {error}", file=sys.stderr)
         return 2
     except RegistryError as error:
         print(f"Ошибка репозитория: {error}", file=sys.stderr)
         return 2
-    print(f"Прямые зависимости {settings.package}@{settings.version}:")
-    if not dependencies:
-        print("Прямых зависимостей нет")
-    for name, constraint in dependencies.items():
-        print(f"{name}={constraint}")
+    print_graph(graph)
     return 0
 
 
