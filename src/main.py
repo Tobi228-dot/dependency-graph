@@ -12,10 +12,12 @@ if __package__:
     from .graph import build_graph, print_graph
     from .loading import loading_order, print_loading_order
     from .registry import RegistryError
+    from .visualization import VisualizationError, save_visualization
 else:
     from graph import build_graph, print_graph
     from loading import loading_order, print_loading_order
     from registry import RegistryError
+    from visualization import VisualizationError, save_visualization
 
 
 PACKAGE = re.compile(r"(?:@[a-z0-9._-]+/)?[a-z0-9][a-z0-9._-]*")
@@ -158,28 +160,49 @@ def load_settings(path):
     return settings
 
 
-def main(argv=None):
-    """Вывести граф или порядок загрузки; вернуть 2 при ошибке."""
+def parse_arguments(argv):
+    """Разобрать путь к INI и взаимоисключающие режимы CLI."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True,
                         help="путь к UTF-8 INI-файлу")
-    parser.add_argument("--load-order", action="store_true",
-                        help="вывести порядок загрузки зависимостей")
-    arguments = parser.parse_args(argv)
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--load-order", action="store_true",
+                       help="вывести порядок загрузки зависимостей")
+    modes.add_argument("--visualize", action="store_true",
+                       help="сохранить граф как PlantUML и SVG")
+    return parser.parse_args(argv)
+
+
+def run_command(settings, arguments):
+    """Построить граф и выполнить выбранную операцию."""
+    base = arguments.config.parent
+    graph = build_graph(settings, base)
+    if arguments.load_order:
+        print_loading_order(loading_order(graph))
+    elif arguments.visualize:
+        output = local_path(settings.output, base)
+        source, svg = save_visualization(graph, output)
+        print(f"PlantUML: {source}")
+        print(f"SVG: {svg}")
+    else:
+        print_graph(graph)
+
+
+def main(argv=None):
+    """Выполнить команду; вернуть 2 при ошибке пользователя или рендеринга."""
+    arguments = parse_arguments(argv)
     try:
         settings = load_settings(arguments.config)
-        graph = build_graph(settings, arguments.config.parent)
-        order = loading_order(graph) if arguments.load_order else None
+        run_command(settings, arguments)
     except ConfigError as error:
         print(f"Ошибка конфигурации: {error}", file=sys.stderr)
         return 2
     except RegistryError as error:
         print(f"Ошибка репозитория: {error}", file=sys.stderr)
         return 2
-    if order is not None:
-        print_loading_order(order)
-    else:
-        print_graph(graph)
+    except VisualizationError as error:
+        print(f"Ошибка визуализации: {error}", file=sys.stderr)
+        return 2
     return 0
 
 

@@ -11,4 +11,6 @@ dist/
 .idea/
 .vscode/
 .DS_Store
-graph.svg
+*.svg
+*.puml
+.ruff_cache/
