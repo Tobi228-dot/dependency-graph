@@ -10,9 +10,11 @@ from urllib.parse import urlsplit
 
 if __package__:
     from .graph import build_graph, print_graph
+    from .loading import loading_order, print_loading_order
     from .registry import RegistryError
 else:
     from graph import build_graph, print_graph
+    from loading import loading_order, print_loading_order
     from registry import RegistryError
 
 
@@ -157,21 +159,27 @@ def load_settings(path):
 
 
 def main(argv=None):
-    """Вывести граф зависимостей; вернуть 2 при пользовательской ошибке."""
+    """Вывести граф или порядок загрузки; вернуть 2 при ошибке."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True,
                         help="путь к UTF-8 INI-файлу")
+    parser.add_argument("--load-order", action="store_true",
+                        help="вывести порядок загрузки зависимостей")
     arguments = parser.parse_args(argv)
     try:
         settings = load_settings(arguments.config)
         graph = build_graph(settings, arguments.config.parent)
+        order = loading_order(graph) if arguments.load_order else None
     except ConfigError as error:
         print(f"Ошибка конфигурации: {error}", file=sys.stderr)
         return 2
     except RegistryError as error:
         print(f"Ошибка репозитория: {error}", file=sys.stderr)
         return 2
-    print_graph(graph)
+    if order is not None:
+        print_loading_order(order)
+    else:
+        print_graph(graph)
     return 0
 
 
